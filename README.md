@@ -2,7 +2,7 @@
 
 Version **0.1.40** for the WoW Forever beta (interface 16001, build 70425).
 
-Friday Night Bags gives the gamepad combined backpack a compact grid with bag-origin colors. The gamepad layout displays �Friday Night Bags� as its title. It retains Blizzard's item buttons, pickup and drop actions, bag options, controller bindings, and O-to-close behavior. Keyboard and mouse mode keeps Blizzard's bag layout.
+Friday Night Bags gives the gamepad combined backpack a compact grid with bag-origin colors. The gamepad layout displays “Friday Night Bags” as its title. It retains Blizzard's item buttons, pickup and drop actions, bag options, controller bindings, and O-to-close behavior. Keyboard and mouse mode keeps Blizzard's bag layout.
 
 The seven-column navigation layout is enabled by default. On accounts with four locked extra backpack slots, `/fnb landscape on` places those slots beside the `+` control and spreads usable items across eleven columns. The wider layout was tested in game by the author. It falls back to seven columns when the locked slots are unavailable. The equipped-bag row stays visible in the navigation layout.
 
@@ -27,6 +27,6 @@ The author observed a crash when transferring an item **from bags into the bank*
 
 ## License and support
 
-Copyright � 2026 Walters28. **All Rights Reserved.** See [LICENSE](LICENSE) for the permission to download, install, and use unmodified copies; modification and redistribution require prior written permission.
+Copyright © 2026 Walters28. **All Rights Reserved.** See [LICENSE](LICENSE) for the permission to download, install, and use unmodified copies; modification and redistribution require prior written permission.
 
 If you'd like to support future addon work, optional tips are welcome at https://ko-fi.com/walterschaos. Tips are unrelated to addon functionality.
