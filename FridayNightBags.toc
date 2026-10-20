@@ -1,7 +1,7 @@
 ## Interface: 16001
 ## Title: Friday Night Bags
 ## Notes: Gamepad-only combined bags with bag-origin colors and guarded gray-junk sales
-## Version: 0.1.40
+## Version: 0.1.41
 ## SavedVariablesPerCharacter: FridayNightBagsDB, FridayNightBagsExport
 
 FridayNightBags.lua

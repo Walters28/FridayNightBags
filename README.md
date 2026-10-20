@@ -1,6 +1,6 @@
 # Friday Night Gamepad Bags by Walters
 
-Version **0.1.40** for the WoW Forever beta (interface 16001, build 70425).
+Version **0.1.41** for the WoW Forever beta (interface 16001, tested on build 70450).
 
 Friday Night Bags gives the gamepad combined backpack a compact grid with bag-origin colors. The gamepad layout displays “Friday Night Bags” as its title. It retains Blizzard's item buttons, pickup and drop actions, bag options, controller bindings, and O-to-close behavior. Keyboard and mouse mode keeps Blizzard's bag layout.
 
@@ -21,9 +21,9 @@ Extract the ZIP into `World of Warcraft/_classic_beta_/Interface/AddOns` so the 
 
 Diagnostic and export commands are available for troubleshooting. No character data or diagnostic capture is included in the download.
 
-## Known beta bank-close issue
+## Bank-close status
 
-The author observed a crash when transferring an item **from bags into the bank** and then pressing controller **O**. Bank-tab navigation and bank item moves followed by O did not crash. Switching from an open bank to bags, moving bag items, then pressing O did not crash. Transferring an item from bank to bags followed by O closed the bags while leaving the bank open and did not crash. The cause has not been established, and this release does not claim a fix. After a bags-to-bank transfer, avoid O; click the bank window's **on-screen X** to close it (not the controller X button).
+Earlier beta tests intermittently showed protected-action popups and a game hang after bag and bank transfers. Version 0.1.41 removes extra layout refreshes that were suspected of contributing. With the custom layout enabled, the author completed controlled tests of ordinary bag navigation and O close, bank open/close, a bag-to-bank transfer followed by O, a bank-to-bag transfer followed by O, and a deposit followed by the bank window's on-screen X. All closed without a popup. These tests do not prove the sole cause, and longer play remains to be observed. If the issue returns, capture the exact popup text and action sequence.
 
 ## License and support
 

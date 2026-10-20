@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.1.41 - WoW Forever beta
+
+- Preserved the seven-column and optional eleven-column gamepad layout and Blizzard's native controller navigation; `navfix` remains retired.
+- Avoided extra frame-size, item-layout, and anchor refreshes on routine bag updates and other automatic events; guarded the item-layout hook against reentry.
+- With the custom layout enabled on client build 1.60.1.70450, the author reported clean ordinary bag navigation and O close, bank open/close, bag-to-bank and bank-to-bag transfers followed by O, and a deposit followed by the bank window's on-screen X.
+- Earlier protected-action popups and hangs were intermittent. The exact cause remains unproven, and longer play remains to be observed.
+
 ## 0.1.40 — WoW Forever beta
 
 - Aligned the gamepad navigation grid so horizontal movement stays on the intended item row.

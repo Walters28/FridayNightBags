@@ -1,5 +1,5 @@
 local ADDON_NAME = ...
-local VERSION = "0.1.40"
+local VERSION = "0.1.41"
 local addon = CreateFrame("Frame")
 local db
 local merchantSession = 0
@@ -569,7 +569,9 @@ end
 refreshOriginalLayout = function()
     if not layoutFrame or not shown(layoutFrame) or
         (InCombatLockdown and InCombatLockdown()) or layoutBusy then return end
-    if not gamepadModeActive() and not barCustomized and not bagShadingVisible then return end
+    -- With the custom layout off, leave native bag updates alone after any
+    -- previously customized controls have been restored.
+    if not gamepadVisualsEnabled() and not barCustomized and not bagShadingVisible then return end
     layoutBusy = true
     local ok = pcall(function()
         layoutFrame:UpdateFrameSize()
@@ -583,6 +585,9 @@ end
 
 local function installLayoutHooks()
     if layoutFrame then return end
+    -- A disabled layout must not attach to Blizzard's combined bag at login.
+    -- Turning the layout on later calls this function from the slash command.
+    if not gamepadVisualsEnabled() then return end
     local frame = _G.ContainerFrameCombinedBags
     if not safeLayoutObject(frame) or not hooksecurefunc or
         type(frame.UpdateFrameSize) ~= "function" or
@@ -605,6 +610,9 @@ local function installLayoutHooks()
             end
         end)
         hooksecurefunc(frame, "UpdateItemLayout", function(self)
+            if layoutMutating then return end
+            if not gamepadVisualsEnabled() and not barCustomized and
+                not bagShadingVisible then return end
             updateBagSlotShading(self, gamepadVisualsEnabled())
             if not useOriginalLayout() then
                 if not (InCombatLockdown and InCombatLockdown()) then
@@ -642,17 +650,7 @@ local function installLayoutHooks()
             controllerSelectionGeneration = controllerSelectionGeneration + 1
             iconHighlightSeen = false
             stopBarAnimation()
-            local wasExpanded = db and db.bagBarExpanded
             if db then db.bagBarExpanded = db.navLayout == true end
-            -- Do not mutate native bag controls during Blizzard's show script.
-            if wasExpanded and C_Timer and C_Timer.After then
-                local generation = controllerSelectionGeneration
-                C_Timer.After(0, function()
-                    if generation == controllerSelectionGeneration and shown(frame) then
-                        refreshOriginalLayout()
-                    end
-                end)
-            end
         end)
     end
 end
@@ -1438,7 +1436,6 @@ addon:RegisterEvent("PLAYER_REGEN_ENABLED")
 addon:RegisterEvent("MERCHANT_SHOW")
 addon:RegisterEvent("MERCHANT_CLOSED")
 addon:RegisterEvent("BAG_UPDATE_DELAYED")
-addon:RegisterEvent("PLAYER_EQUIPMENT_CHANGED")
 addon:RegisterEvent("ADDON_ACTION_BLOCKED")
 addon:RegisterEvent("ADDON_ACTION_FORBIDDEN")
 addon:SetScript("OnEvent", function(_, event, name, blockedFunction)
@@ -1462,9 +1459,6 @@ addon:SetScript("OnEvent", function(_, event, name, blockedFunction)
             installLayoutHooks()
             installSortHook()
         end
-        refreshOriginalLayout()
-    elseif event == "PLAYER_EQUIPMENT_CHANGED" then
-        refreshOriginalLayout()
     elseif event == "MERCHANT_SHOW" then
         merchantSession = merchantSession + 1
         merchantOpen = gamepadModeActive()
@@ -1479,7 +1473,6 @@ addon:SetScript("OnEvent", function(_, event, name, blockedFunction)
         merchantSession = merchantSession + 1
         merchantOpen = false
     elseif event == "BAG_UPDATE_DELAYED" then
-        refreshOriginalLayout()
         if gamepadModeActive() and sortProbe and sortProbe.state == "await_sort" then
             sortProbe.preSortUpdates = sortProbe.preSortUpdates + 1
         elseif gamepadModeActive() and sortProbe and sortProbe.state == "sorting" then
@@ -1512,7 +1505,6 @@ addon:SetScript("OnUpdate", function(_, elapsed)
             installLayoutHooks()
             installSortHook()
         end
-        refreshOriginalLayout()
         refreshBagTitle()
     end
     if not mode then return end
