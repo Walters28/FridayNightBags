@@ -1,5 +1,5 @@
 local ADDON_NAME = ...
-local VERSION = "0.1.41"
+local VERSION = "0.1.42"
 local addon = CreateFrame("Frame")
 local db
 local merchantSession = 0
@@ -44,8 +44,10 @@ local BAG_SLOT_TINT = {
 }
 local bagSlotShades = setmetatable({}, { __mode = "k" })
 local bagIconShades = setmetatable({}, { __mode = "k" })
-local BAG_SLOT_SHADE_ALPHA = 0.30
+local DEFAULT_COLOR_OPACITY = 30
+local MAX_COLOR_OPACITY = 50
 local bagShadingVisible = false
+local colorSettingsPanel, colorSettingsCategory
 local lastGamepadMode
 local sortHookInstalled, sortHookAttempted = false, false
 local sortProbeGeneration = 0
@@ -176,6 +178,15 @@ local function safeLayoutObject(object)
     return ok and not forbidden
 end
 
+local function bagColor(bag)
+    local custom = db and db.bagColors and db.bagColors[bag]
+    return custom or BAG_SLOT_TINT[bag]
+end
+
+local function bagColorOpacity()
+    return (db and db.bagColorOpacity or DEFAULT_COLOR_OPACITY) / 100
+end
+
 local function refreshBagTitle()
     local frame = layoutFrame or _G.ContainerFrameCombinedBags
     if safeLayoutObject(frame) and type(frame.UpdateName) == "function" then
@@ -230,7 +241,8 @@ end
 local function shadeBagIcon(button, bag)
     if not safeLayoutObject(button) then return end
     pcall(function()
-        local color = BAG_SLOT_TINT[bag]
+        local color = db and db.bagColorsEnabled and db.bagColorOpacity > 0 and
+            gamepadVisualsEnabled() and bagColor(bag)
         local shade = bagIconShades[button]
         if not color then
             if shade then shade:Hide() end
@@ -243,7 +255,7 @@ local function shadeBagIcon(button, bag)
             shade:SetPoint("BOTTOMRIGHT", button, "BOTTOMRIGHT", -4, 4)
             bagIconShades[button] = shade
         end
-        shade:SetColorTexture(color[1], color[2], color[3], BAG_SLOT_SHADE_ALPHA)
+        shade:SetColorTexture(color[1], color[2], color[3], bagColorOpacity())
         shade:Show()
     end)
 end
@@ -546,7 +558,8 @@ local function updateBagSlotShading(frame, enabled)
             -- read its current bag ID when Blizzard reassigns that button.
             pcall(function()
                 local shade = bagSlotShades[item]
-                local color = enabled and BAG_SLOT_TINT[item:GetBagID()]
+                local color = enabled and db and db.bagColorsEnabled and
+                    db.bagColorOpacity > 0 and bagColor(item:GetBagID())
                 if not color then
                     if shade then shade:Hide() end
                     return
@@ -558,12 +571,25 @@ local function updateBagSlotShading(frame, enabled)
                     shade:SetPoint("BOTTOMRIGHT", item, "BOTTOMRIGHT", -4, 4)
                     bagSlotShades[item] = shade
                 end
-                shade:SetColorTexture(color[1], color[2], color[3], BAG_SLOT_SHADE_ALPHA)
+                shade:SetColorTexture(color[1], color[2], color[3], bagColorOpacity())
                 shade:Show()
                 bagShadingVisible = true
             end)
         end
     end
+end
+
+local function refreshBagColors()
+    local enabled = gamepadVisualsEnabled() and db.bagColorsEnabled and
+        db.bagColorOpacity > 0
+    -- Turning colors off only hides addon textures. Turning them on waits for
+    -- Blizzard's next normal item layout instead of touching protected bag
+    -- buttons during a settings click or changing gamepad focus.
+    if enabled then return end
+    -- Pooled buttons can outlive the currently displayed item list.
+    for _, shade in pairs(bagSlotShades) do pcall(shade.Hide, shade) end
+    for _, shade in pairs(bagIconShades) do pcall(shade.Hide, shade) end
+    bagShadingVisible = false
 end
 
 refreshOriginalLayout = function()
@@ -595,7 +621,7 @@ local function installLayoutHooks()
     local ok = pcall(function()
         hooksecurefunc(frame, "UpdateFrameSize", function(self)
             if useOriginalLayout() and safeLayoutObject(self) then
-                local sized = pcall(function()
+                local sized, sizeError = pcall(function()
                     nativeLayoutHeight = self:GetHeight()
                     nativeLayoutWidth = self:GetWidth()
                     -- Keep the proven allowance until the following item
@@ -1032,11 +1058,374 @@ local function installSortHook()
     sortHookInstalled = ok
 end
 
+local BAG_COLOR_NAMES = {
+    [0] = "Backpack", [1] = "Bag 1", [2] = "Bag 2",
+    [3] = "Bag 3", [4] = "Bag 4", [5] = "Reagent bag",
+}
+
+local function colorChannel(value)
+    if type(value) ~= "number" or value ~= value then return nil end
+    return math.max(0, math.min(1, value))
+end
+
+local function setBagColor(bag, r, g, b)
+    r, g, b = colorChannel(r), colorChannel(g), colorChannel(b)
+    if not r or not g or not b then return end
+    db.bagColors[bag] = { r, g, b }
+    refreshBagColors()
+    if colorSettingsPanel then colorSettingsPanel:UpdateValues() end
+end
+
+local function resetBagColors()
+    db.bagColorsEnabled = true
+    db.bagColorOpacity = DEFAULT_COLOR_OPACITY
+    db.bagColors = {}
+    refreshBagColors()
+    if colorSettingsPanel then colorSettingsPanel:UpdateValues() end
+end
+
+local function enableSettingsRowGamepadClick(button)
+    -- SmartNavigation calls this for X on an addon-owned button. Its generic
+    -- MouseDown/MouseUp fallback does not reliably fire our OnClick scripts.
+    button.OnSmartNavClick = function(self) self:Click() end
+end
+
+-- SettingsList acquires this custom row inside its native ScrollBox. Its
+-- first focusable child is the coloring toggle, followed by the original
+-- opacity buttons and six side-by-side color/default rows.
+FNBColorSettingsRowMixin = {}
+function FNBColorSettingsRowMixin:OnLoad()
+    local panel = self
+    panel.name = "Friday Night Bags"
+    panel.swatches = {}
+    colorSettingsPanel = panel
+
+        local toggle = CreateFrame("CheckButton", nil, panel, "UICheckButtonTemplate")
+        toggle:SetPoint("TOPLEFT", panel, "TOPLEFT", 18, 0)
+        local toggleLabel = panel:CreateFontString(nil, "ARTWORK", "GameFontNormal")
+        toggleLabel:SetPoint("LEFT", toggle, "RIGHT", 4, 0)
+        toggleLabel:SetText("Color bag slots and bag icons")
+        toggle:SetScript("OnClick", function(self)
+            db.bagColorsEnabled = not not self:GetChecked()
+            refreshBagColors()
+        end)
+        enableSettingsRowGamepadClick(toggle)
+        panel.toggle = toggle
+
+        local opacity = CreateFrame("Slider", nil, panel, "OptionsSliderTemplate")
+        -- The slider remains draggable with a mouse. Its template can expose
+        -- non-actionable gamepad targets; controller opacity uses - and +.
+        if SmartNavigation_MarkFrameIgnored then
+            SmartNavigation_MarkFrameIgnored(opacity)
+        end
+        opacity:SetPoint("TOPLEFT", panel, "TOPLEFT", 30, -64)
+        opacity:SetWidth(250)
+        opacity:SetMinMaxValues(0, MAX_COLOR_OPACITY)
+        if opacity.SetValueStep then opacity:SetValueStep(5) end
+        if opacity.SetObeyStepOnDrag then opacity:SetObeyStepOnDrag(true) end
+        local opacityLabel = panel:CreateFontString(nil, "ARTWORK", "GameFontNormal")
+        opacityLabel:SetPoint("BOTTOMLEFT", opacity, "TOPLEFT", 0, 8)
+        panel.opacityLabel = opacityLabel
+        opacity:SetScript("OnValueChanged", function(self, value)
+            if panel.syncing then return end
+            local rounded = math.floor(value / 5 + 0.5) * 5
+            if value ~= rounded then self:SetValue(rounded); return end
+            db.bagColorOpacity = rounded
+            opacityLabel:SetText("Tint opacity: " .. rounded .. "% (maximum 50%)")
+            panel:UpdateSwatches()
+            refreshBagColors()
+        end)
+        panel.opacity = opacity
+
+        -- Keep the original slider for mouse use; ordinary buttons give the
+        -- controller a precise route without adding a gamepad binding group.
+        local decrease = CreateFrame("Button", nil, panel, "UIPanelButtonTemplate")
+        decrease:SetSize(28, 25)
+        decrease:SetPoint("TOPLEFT", panel, "TOPLEFT", 294, -53)
+        decrease:SetText("-")
+        decrease:SetScript("OnClick", function()
+            opacity:SetValue(math.max(0, db.bagColorOpacity - 5))
+        end)
+        enableSettingsRowGamepadClick(decrease)
+        local increase = CreateFrame("Button", nil, panel, "UIPanelButtonTemplate")
+        increase:SetSize(28, 25)
+        increase:SetPoint("TOPLEFT", panel, "TOPLEFT", 329, -53)
+        increase:SetText("+")
+        increase:SetScript("OnClick", function()
+            opacity:SetValue(math.min(MAX_COLOR_OPACITY,
+                db.bagColorOpacity + 5))
+        end)
+        enableSettingsRowGamepadClick(increase)
+
+        for bag = 0, 5 do
+            local y = -107 - bag * 35
+            local name = panel:CreateFontString(nil, "ARTWORK", "GameFontNormal")
+            name:SetPoint("TOPLEFT", panel, "TOPLEFT", 20, y)
+            name:SetText(BAG_COLOR_NAMES[bag])
+            local swatch = CreateFrame("Frame", nil, panel)
+            swatch:SetSize(24, 22)
+            swatch:SetPoint("TOPLEFT", panel, "TOPLEFT", 140, y + 2)
+            local border = swatch:CreateTexture(nil, "BACKGROUND")
+            border:SetAllPoints()
+            border:SetColorTexture(0.6, 0.6, 0.6, 1)
+            local backing = swatch:CreateTexture(nil, "ARTWORK")
+            backing:SetPoint("TOPLEFT", swatch, "TOPLEFT", 1, -1)
+            backing:SetPoint("BOTTOMRIGHT", swatch, "BOTTOMRIGHT", -1, 1)
+            backing:SetColorTexture(0.16, 0.16, 0.16, 1)
+            local tint = swatch:CreateTexture(nil, "OVERLAY")
+            tint:SetPoint("TOPLEFT", swatch, "TOPLEFT", 1, -1)
+            tint:SetPoint("BOTTOMRIGHT", swatch, "BOTTOMRIGHT", -7, 1)
+            local hue = swatch:CreateTexture(nil, "OVERLAY")
+            hue:SetPoint("TOPLEFT", swatch, "TOPRIGHT", -7, -1)
+            hue:SetPoint("BOTTOMRIGHT", swatch, "BOTTOMRIGHT", -1, 1)
+            panel.swatches[bag] = { tint = tint, hue = hue }
+
+            local choose = CreateFrame("Button", nil, panel, "UIPanelButtonTemplate")
+            choose:SetSize(110, 25)
+            choose:SetPoint("TOPLEFT", panel, "TOPLEFT", 175, y + 3)
+            choose:SetText(BAG_COLOR_NAMES[bag])
+            choose:SetScript("OnClick", function()
+                panel:OpenColorEditor(bag)
+            end)
+            enableSettingsRowGamepadClick(choose)
+
+            local reset = CreateFrame("Button", nil, panel, "UIPanelButtonTemplate")
+            reset:SetSize(78, 25)
+            reset:SetPoint("TOPLEFT", panel, "TOPLEFT", 294, y + 3)
+            reset:SetText("Default")
+            reset:SetScript("OnClick", function()
+                db.bagColors[bag] = nil
+                refreshBagColors()
+                if panel.editorBag == bag then
+                    panel:OpenColorEditor(bag)
+                end
+                panel:UpdateValues()
+            end)
+            enableSettingsRowGamepadClick(reset)
+        end
+
+        local resetAll = CreateFrame("Button", nil, panel, "UIPanelButtonTemplate")
+        resetAll:SetSize(145, 25)
+        resetAll:SetPoint("TOPLEFT", panel, "TOPLEFT", 20, -327)
+        resetAll:SetText("Reset color settings")
+        resetAll:SetScript("OnClick", function()
+            resetBagColors()
+            panel:OpenColorEditor(panel.editorBag or 0)
+        end)
+        enableSettingsRowGamepadClick(resetAll)
+
+        local previewNote = panel:CreateFontString(nil, "ARTWORK", "GameFontHighlightSmall")
+        previewNote:SetPoint("TOPLEFT", panel, "TOPLEFT", 390, -325)
+        previewNote:SetText("Sample tint uses selected opacity.\nApply saves; Cancel reverts.")
+
+        -- Keep this editor visible while Settings is open. Apply and Cancel
+        -- leave the selected button visible so controller focus cannot be
+        -- stranded on a button hidden by its own click.
+        local editor = CreateFrame("Frame", nil, panel)
+        editor:SetSize(220, 205)
+        editor:SetPoint("TOPLEFT", panel, "TOPLEFT", 390, -107)
+        panel.colorEditor = editor
+
+        local editorTitle = editor:CreateFontString(nil, "ARTWORK", "GameFontNormal")
+        editorTitle:SetPoint("TOPLEFT", editor, "TOPLEFT", 0, 0)
+        panel.editorTitle = editorTitle
+        local sampleFrame = CreateFrame("Frame", nil, editor)
+        sampleFrame:SetSize(35, 26)
+        sampleFrame:SetPoint("TOPRIGHT", editor, "TOPRIGHT", -6, 1)
+        local sampleBorder = sampleFrame:CreateTexture(nil, "BACKGROUND")
+        sampleBorder:SetAllPoints()
+        sampleBorder:SetColorTexture(0.6, 0.6, 0.6, 1)
+        local sampleBacking = sampleFrame:CreateTexture(nil, "ARTWORK")
+        sampleBacking:SetPoint("TOPLEFT", sampleFrame, "TOPLEFT", 1, -1)
+        sampleBacking:SetPoint("BOTTOMRIGHT", sampleFrame, "BOTTOMRIGHT", -1, 1)
+        sampleBacking:SetColorTexture(0.16, 0.16, 0.16, 1)
+        local sampleTint = sampleFrame:CreateTexture(nil, "OVERLAY")
+        sampleTint:SetPoint("TOPLEFT", sampleFrame, "TOPLEFT", 1, -1)
+        sampleTint:SetPoint("BOTTOMRIGHT", sampleFrame, "BOTTOMRIGHT", -8, 1)
+        local sampleHue = sampleFrame:CreateTexture(nil, "OVERLAY")
+        sampleHue:SetPoint("TOPLEFT", sampleFrame, "TOPRIGHT", -8, -1)
+        sampleHue:SetPoint("BOTTOMRIGHT", sampleFrame, "BOTTOMRIGHT", -1, 1)
+        panel.editorSampleTint, panel.editorSampleHue = sampleTint, sampleHue
+        panel.editorValueLabels = {}
+
+        local channels = { "R", "G", "B" }
+        for channel = 1, 3 do
+            local index = channel
+            local y = -38 - (channel - 1) * 37
+            local label = editor:CreateFontString(nil, "ARTWORK", "GameFontNormal")
+            label:SetPoint("TOPLEFT", editor, "TOPLEFT", 5, y - 4)
+            label:SetText(channels[channel])
+            local minus = CreateFrame("Button", nil, editor, "UIPanelButtonTemplate")
+            minus:SetSize(30, 25)
+            minus:SetPoint("TOPLEFT", editor, "TOPLEFT", 35, y)
+            minus:SetText("-")
+            minus:SetScript("OnClick", function()
+                panel:AdjustColorEditor(index, -0.05)
+            end)
+            enableSettingsRowGamepadClick(minus)
+            local value = editor:CreateFontString(nil, "ARTWORK", "GameFontHighlight")
+            value:SetPoint("TOPLEFT", editor, "TOPLEFT", 75, y - 4)
+            panel.editorValueLabels[index] = value
+            local plus = CreateFrame("Button", nil, editor, "UIPanelButtonTemplate")
+            plus:SetSize(30, 25)
+            plus:SetPoint("TOPLEFT", editor, "TOPLEFT", 150, y)
+            plus:SetText("+")
+            plus:SetScript("OnClick", function()
+                panel:AdjustColorEditor(index, 0.05)
+            end)
+            enableSettingsRowGamepadClick(plus)
+        end
+
+        local apply = CreateFrame("Button", nil, editor, "UIPanelButtonTemplate")
+        apply:SetSize(92, 25)
+        apply:SetPoint("TOPLEFT", editor, "TOPLEFT", 5, -158)
+        apply:SetText("Apply")
+        apply:SetScript("OnClick", function() panel:ApplyColorEditor() end)
+        enableSettingsRowGamepadClick(apply)
+        local cancel = CreateFrame("Button", nil, editor, "UIPanelButtonTemplate")
+        cancel:SetSize(92, 25)
+        cancel:SetPoint("TOPLEFT", editor, "TOPLEFT", 111, -158)
+        cancel:SetText("Cancel")
+        cancel:SetScript("OnClick", function() panel:CancelColorEditor() end)
+        enableSettingsRowGamepadClick(cancel)
+
+        function panel:UpdateColorEditor()
+            if not self.editorDraft then return end
+            local draft = self.editorDraft
+            self.editorTitle:SetText(BAG_COLOR_NAMES[self.editorBag] .. " color")
+            for channel = 1, 3 do
+                self.editorValueLabels[channel]:SetText(
+                    math.floor(draft[channel] * 100 + 0.5) .. "%")
+            end
+            self.editorSampleTint:SetColorTexture(draft[1], draft[2], draft[3],
+                db.bagColorOpacity / 100)
+            self.editorSampleHue:SetColorTexture(draft[1], draft[2], draft[3], 1)
+        end
+
+        function panel:CancelColorEditor()
+            local bag = self.editorBag or 0
+            local color = bagColor(bag)
+            self.editorBag = bag
+            self.editorDraft = { color[1], color[2], color[3] }
+            self:UpdateColorEditor()
+        end
+
+        function panel:OpenColorEditor(bag)
+            local color = bagColor(bag)
+            self.editorBag = bag
+            self.editorDraft = { color[1], color[2], color[3] }
+            self:UpdateColorEditor()
+        end
+
+        function panel:AdjustColorEditor(channel, delta)
+            if not self.editorDraft then return end
+            self.editorDraft[channel] = math.max(0,
+                math.min(1, self.editorDraft[channel] + delta))
+            self:UpdateColorEditor()
+        end
+
+        function panel:ApplyColorEditor()
+            if not self.editorDraft then return end
+            local bag, draft = self.editorBag, self.editorDraft
+            setBagColor(bag, draft[1], draft[2], draft[3])
+        end
+
+        function panel:UpdateSwatches()
+            for bag = 0, 5 do
+                local color = bagColor(bag)
+                local sample = self.swatches[bag]
+                sample.tint:SetColorTexture(color[1], color[2], color[3],
+                    db.bagColorOpacity / 100)
+                sample.hue:SetColorTexture(color[1], color[2], color[3], 1)
+            end
+            self:UpdateColorEditor()
+        end
+
+        function panel:UpdateValues()
+            self.syncing = true
+            self.toggle:SetChecked(db.bagColorsEnabled)
+            self.opacity:SetValue(db.bagColorOpacity)
+            self.opacityLabel:SetText("Tint opacity: " .. db.bagColorOpacity ..
+                "% (maximum 50%)")
+            self:UpdateSwatches()
+            self.syncing = false
+        end
+end
+
+function FNBColorSettingsRowMixin:Init()
+    colorSettingsPanel = self
+    self:OpenColorEditor(0)
+    self:UpdateValues()
+end
+
+function FNBColorSettingsRowMixin:Release()
+    self:CancelColorEditor()
+    if colorSettingsPanel == self then colorSettingsPanel = nil end
+end
+
+local function registerColorSettingsPanel()
+    if colorSettingsCategory then return true end
+    if not (Settings and Settings.RegisterVerticalLayoutCategory and
+        Settings.CreatePanelInitializer and Settings.RegisterInitializer and
+        Settings.RegisterAddOnCategory) then return false end
+    local ok, category = pcall(Settings.RegisterVerticalLayoutCategory,
+        "Friday Night Bags")
+    if not ok or not category then return false end
+    local initOk, initializer = pcall(Settings.CreatePanelInitializer,
+        "FNBColorSettingsRowTemplate", { name = "Friday Night Bags colors" })
+    if not initOk or not initializer then return false end
+    if not pcall(Settings.RegisterInitializer, category, initializer) then
+        return false
+    end
+    if not pcall(Settings.RegisterAddOnCategory, category) then
+        return false
+    end
+    colorSettingsCategory = category
+    return true
+end
+
+local function openColorSettings()
+    if not registerColorSettingsPanel() then
+        say("Color settings are unavailable in this client.")
+        return
+    end
+    if Settings and Settings.OpenToCategory and
+        colorSettingsCategory.GetID then
+        local idOk, id = pcall(colorSettingsCategory.GetID, colorSettingsCategory)
+        if idOk and id and pcall(Settings.OpenToCategory, id) then return end
+    end
+    if InterfaceOptionsFrame_OpenToCategory then
+        pcall(InterfaceOptionsFrame_OpenToCategory, colorSettingsPanel)
+    else
+        say("Open Friday Night Bags in the game settings to change colors.")
+    end
+end
+
 local function init()
     FridayNightBagsDB = FridayNightBagsDB or {}
     db = FridayNightBagsDB
     if db.autoSellGray == nil then db.autoSellGray = true end
     if db.originalGamepadLayout == nil then db.originalGamepadLayout = true end
+    if type(db.bagColorsEnabled) ~= "boolean" then db.bagColorsEnabled = true end
+    if type(db.bagColorOpacity) ~= "number" or
+        db.bagColorOpacity ~= db.bagColorOpacity then
+        db.bagColorOpacity = DEFAULT_COLOR_OPACITY
+    end
+    db.bagColorOpacity = math.floor(math.max(0,
+        math.min(MAX_COLOR_OPACITY, db.bagColorOpacity)) / 5 + 0.5) * 5
+    if type(db.bagColors) ~= "table" then db.bagColors = {} end
+    for bag = 0, 5 do
+        local color = db.bagColors[bag]
+        if color ~= nil then
+            if type(color) ~= "table" then
+                db.bagColors[bag] = nil
+            else
+                local r, g, b = colorChannel(color[1]),
+                    colorChannel(color[2]), colorChannel(color[3])
+                db.bagColors[bag] = r and g and b and { r, g, b } or nil
+            end
+        end
+    end
     -- Retire the prior panel-state experiment, including saved "on" values.
     db.navigationFix = false
     if db.navLayout == nil then db.navLayout = true end
@@ -1450,6 +1839,7 @@ addon:SetScript("OnEvent", function(_, event, name, blockedFunction)
             installSortHook()
         end
     elseif event == "PLAYER_LOGIN" then
+        registerColorSettingsPanel()
         if gamepadModeActive() then
             installLayoutHooks()
             installSortHook()
@@ -1558,6 +1948,90 @@ addon:SetScript("OnUpdate", function(_, elapsed)
     capture()
 end)
 
+-- Read-only SmartNavigation snapshot for locating empty Settings focus targets.
+-- No selection, bindings, or panel ownership is changed by this capture.
+local function focusFrameName(frame)
+    if not frame then return "nil" end
+    local name = frame.GetName and frame:GetName()
+    if not name and frame.GetDebugName then
+        local ok, debugName = pcall(frame.GetDebugName, frame)
+        if ok then name = debugName end
+    end
+    local kind = frame.GetObjectType and frame:GetObjectType() or "?"
+    return (name or "<unnamed>") .. ":" .. kind
+end
+
+local function focusFrameRect(frame)
+    if not frame or not frame.GetRect then return "?" end
+    local left, bottom, width, height = frame:GetRect()
+    if not left then return "?" end
+    return string.format("%.1f,%.1f,%.1f,%.1f",
+        left, bottom, width, height)
+end
+
+local function focusFrameParents(frame)
+    local parents = {}
+    for _ = 1, 5 do
+        frame = frame and frame.GetParent and frame:GetParent()
+        if not frame then break end
+        parents[#parents + 1] = focusFrameName(frame)
+    end
+    return table.concat(parents, " > ")
+end
+
+local function focusTargetReport()
+    local nav = _G.SmartNavigation
+    if not nav or not nav.GetCurrentButton then
+        return "FNBFOCUS | navigation unavailable", 0
+    end
+    local active = nav.GetActiveFrame and nav:GetActiveFrame()
+    local selected = nav:GetCurrentButton()
+    local info = nav.activeInfo
+    local group = info and info.buttonGroups and
+        (info.buttonGroups.focusedGroup or info.buttonGroups.mainGroup)
+    local lines = { "FNBFOCUS | 1 | " .. VERSION,
+        "ACTIVE | " .. focusFrameName(active) .. " | rect=" .. focusFrameRect(active),
+        "SELECTED | " .. focusFrameName(selected) ..
+            " | rect=" .. focusFrameRect(selected) ..
+            " | parents=" .. focusFrameParents(selected),
+        "SETTINGS | " .. focusFrameName(_G.SettingsPanel) ..
+            " | rect=" .. focusFrameRect(_G.SettingsPanel),
+        "UIPARENT | rect=" .. focusFrameRect(_G.UIParent) }
+    local seen, count = {}, 0
+    local function addButton(button)
+        if not button or seen[button] or count >= 80 then return end
+        seen[button] = true
+        count = count + 1
+        local textValue
+        if button.GetText then
+            local ok, value = pcall(button.GetText, button)
+            if ok then textValue = value end
+        end
+        local onClick = false
+        if button.GetScript and button.IsObjectType and
+            button:IsObjectType("Button") then
+            local ok, value = pcall(button.GetScript, button, "OnClick")
+            onClick = ok and value ~= nil
+        end
+        local smartClick = button.OnSmartNavClick ~= nil
+        lines[#lines + 1] = "BUTTON | " .. count ..
+            " | " .. focusFrameName(button) ..
+            " | selected=" .. tostring(button == selected) ..
+            " | visible=" .. tostring(button.IsVisible and button:IsVisible()) ..
+            " | rect=" .. focusFrameRect(button) ..
+            " | text=" .. tostring(textValue or "") ..
+            " | click=" .. tostring(onClick or smartClick) ..
+            " | parents=" .. focusFrameParents(button)
+    end
+    if group then
+        for _, button in ipairs(group.buttons or {}) do addButton(button) end
+        for _, scrollInfo in ipairs(group.scrollFrames or {}) do
+            for _, button in ipairs(scrollInfo.buttons or {}) do addButton(button) end
+        end
+    end
+    return table.concat(lines, "\n"), count
+end
+
 SLASH_FRIDAYNIGHTBAGS1 = "/fnbag"
 SLASH_FRIDAYNIGHTBAGS2 = "/fnb"
 SlashCmdList.FRIDAYNIGHTBAGS = function(input)
@@ -1568,7 +2042,7 @@ SlashCmdList.FRIDAYNIGHTBAGS = function(input)
         command ~= "keep" and command ~= "unkeep" and command ~= "list" and
         command ~= "layout" and command ~= "nav" and command ~= "navexport" and
         command ~= "navfix" and command ~= "navlayout" and
-        command ~= "landscape" then
+        command ~= "landscape" and command ~= "colors" then
         say("Friday Night Bags actions are available only in gamepad UI mode.")
         return
     end
@@ -1635,6 +2109,24 @@ SlashCmdList.FRIDAYNIGHTBAGS = function(input)
         end
     elseif command == "sortexport" then
         exportSortProbe()
+    elseif command == "colors" then
+        if rest == "on" or rest == "off" then
+            db.bagColorsEnabled = rest == "on"
+            refreshBagColors()
+            if colorSettingsPanel then colorSettingsPanel:UpdateValues() end
+            say("Bag colors " .. (db.bagColorsEnabled and
+                "ON. Reopen bags to apply." or "OFF."))
+        elseif rest == "reset" then
+            resetBagColors()
+            say("Bag colors and opacity restored to defaults.")
+        elseif rest == "status" then
+            say("Bag colors " .. (db.bagColorsEnabled and "ON" or "OFF") ..
+                "; opacity " .. db.bagColorOpacity .. "%. /fnb colors opens settings.")
+        elseif rest == "" or rest == "menu" then
+            openColorSettings()
+        else
+            say("Use /fnb colors, /fnb colors on/off, /fnb colors status, or /fnb colors reset.")
+        end
     elseif command == "layout" then
         if rest == "on" or rest == "off" then
             db.originalGamepadLayout = rest == "on"
@@ -1648,6 +2140,7 @@ SlashCmdList.FRIDAYNIGHTBAGS = function(input)
                 installLayoutHooks()
                 refreshOriginalLayout()
             end
+            refreshBagColors()
             refreshBagTitle()
             say("Original-style gamepad layout " .. (db.originalGamepadLayout and "ON" or "OFF") ..
                 ". /fnbag layout off restores Blizzard's layout.")
@@ -1676,6 +2169,20 @@ SlashCmdList.FRIDAYNIGHTBAGS = function(input)
         end
         setBagBarExpanded(rest == "open" or (rest == "" and not db.bagBarExpanded))
         say("Equipped-bag bar " .. (db.bagBarExpanded and "expanded." or "collapsed."))
+    elseif command == "focus" then
+        if not C_Timer or not C_Timer.After then
+            say("Focus capture requires the timer API in this build.")
+            return
+        end
+        say("Focus capture in 8 seconds. Close chat and select an empty target.")
+        C_Timer.After(8, function()
+            if not db then return end
+            local ok, report, count = pcall(focusTargetReport)
+            db.focusProbe = ok and report or
+                ("FNBFOCUS | capture failed | " .. tostring(report))
+            say("Focus capture saved (" .. (ok and count or 0) ..
+                " controls). Use /reload to save it for review.")
+        end)
     elseif command == "diag" then
         local mode = "1"
         db.diagnostic.views[mode] = nil
@@ -1744,6 +2251,6 @@ SlashCmdList.FRIDAYNIGHTBAGS = function(input)
                 or "; account secured, using seven columns."))
     else
         say("Gray-junk auto-sale " .. (db.autoSellGray and "ON" or "OFF") ..
-            ". Commands: on, off, keep <item link/ID>, unkeep <item link/ID>, list, sort, sortdiag, sortexport, layout on/off, navlayout on/off, landscape on/off, bags, diag, export, nav, navexport.")
+            ". Commands: on, off, keep <item link/ID>, unkeep <item link/ID>, list, sort, sortdiag, sortexport, colors, layout on/off, navlayout on/off, landscape on/off, bags, diag, export, nav, navexport.")
     end
 end

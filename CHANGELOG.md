@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.1.42 - WoW Forever beta
+
+- Added a per-character coloring switch, a tint-opacity slider with live color previews, and six named bag-color rows with individual Default buttons.
+- Added an inline RGB editor with controller-friendly buttons, Apply and Cancel; Reset color settings restores all color defaults. The editor does not open Blizzard's separate color picker.
+- Kept the tested seven-column/optional eleven-column bag layout, native item navigation, and guarded bank-close layout refresh behavior from 0.1.41.
+- The author reported clean inline-editor Cancel and Apply/Settings Close tests, saved color and opacity after reload, and correct bag organization on the working character. Intermittent missing organization after reload on another character remains unresolved.
+- Removed the temporary layout-startup capture from the release package; diagnostic records are not included.
+
 ## 0.1.41 - WoW Forever beta
 
 - Preserved the seven-column and optional eleven-column gamepad layout and Blizzard's native controller navigation; `navfix` remains retired.
