@@ -1,14 +1,14 @@
 # Friday Night Gamepad Bags by Walters
 
-Version **0.1.42** for the WoW Forever beta (interface 16001, developed on build 70532).
+Version **0.1.43** for WoW Forever (interface 16001, developed on build 70790).
 
 Friday Night Bags gives the gamepad combined backpack a compact grid with bag-origin colors. The gamepad layout displays “Friday Night Bags” as its title. It retains Blizzard's item buttons, pickup and drop actions, bag options, controller bindings, and O-to-close behavior. Keyboard and mouse mode keeps Blizzard's bag layout.
 
-The seven-column navigation layout is enabled by default. On accounts with four locked extra backpack slots, `/fnb landscape on` places those slots beside the `+` control and spreads usable items across eleven columns. The wider layout was tested in game by the author. It falls back to seven columns when the locked slots are unavailable. The equipped-bag row stays visible in the navigation layout.
+The aligned navigation layout is enabled by default. It follows the visible bag controls: six columns when account security hides the extra-slot `+`, or seven when `+` is visible. On accounts with four locked extra backpack slots, `/fnb landscape on` places those slots beside `+` and spreads usable items across eleven columns. The equipped-bag row stays visible. D-pad movement follows the visible item rows.
 
 ## Install
 
-Extract the ZIP into `World of Warcraft/_classic_beta_/Interface/AddOns` so the files reside in `AddOns/FridayNightBags`. In game, use `/reload`. The wider layout is a per-character choice: use `/fnb landscape on`, close and reopen the bags to rebuild the navigation grid, then `/reload` to save the choice. `/fnb landscape off` restores seven columns.
+Extract the ZIP into `World of Warcraft/_forever_/Interface/AddOns` so the files reside in `AddOns/FridayNightBags`. In game, use `/reload`. The wider layout is a per-character choice when the four locked slot headers are available: use `/fnb landscape on`, close and reopen the bags to rebuild the navigation grid, then `/reload` to save the choice. `/fnb landscape off` uses the regular grid matching the visible bag controls.
 
 ## Bag colors
 
@@ -31,7 +31,7 @@ Diagnostic and export commands are available for troubleshooting. No character d
 
 Earlier beta tests intermittently showed protected-action popups and a game hang after bag and bank transfers. Version 0.1.41 removes extra layout refreshes that were suspected of contributing. With the custom layout enabled, the author completed controlled tests of ordinary bag navigation and O close, bank open/close, a bag-to-bank transfer followed by O, a bank-to-bag transfer followed by O, and a deposit followed by the bank window's on-screen X. All closed without a popup. These tests do not prove the sole cause, and longer play remains to be observed. If the issue returns, capture the exact popup text and action sequence.
 
-On one beta character, the custom bag organization was intermittently absent after a reload, despite saved options remaining present. Another character later showed the intended layout with saved color and opacity. The cause of the intermittent layout symptom remains unresolved.
+On one character, the custom bag organization was intermittently absent after a reload, despite saved options remaining present. Another character later showed the intended layout with saved color and opacity. The cause of the intermittent layout symptom remains unresolved.
 
 ## License and support
 

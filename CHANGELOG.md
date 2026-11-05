@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.1.43 - WoW Forever
+
+- Adjusted the combined-bag grid to match the bag controls that are actually visible. When account security hides the extra-slot `+`, the grid uses six columns; it uses seven while `+` is visible, or eleven with four locked slot headers in landscape mode.
+- Kept left and right D-pad moves on the same visible row, including the shorter final row, and made Up from the first item reach the Backpack control directly above it.
+- Kept Blizzard's item actions, controller bindings, and bag close behavior. Bag colors and the inline RGB settings menu are unchanged.
+
 ## 0.1.42 - WoW Forever beta
 
 - Added a per-character coloring switch, a tint-opacity slider with live color previews, and six named bag-color rows with individual Default buttons.

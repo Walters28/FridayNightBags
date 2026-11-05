@@ -1,5 +1,5 @@
 local ADDON_NAME = ...
-local VERSION = "0.1.42"
+local VERSION = "0.1.43"
 local addon = CreateFrame("Frame")
 local db
 local merchantSession = 0
@@ -21,6 +21,9 @@ local copyPanel, copyEdit, copyPages, copyPage = nil, nil, nil, 1
 local copyTitle = "Bag diagnostic"
 local showCopyPage
 local layoutFrame, layoutBusy, layoutFailed, barCustomized
+local navAlignedGrid = false
+local navCorrectedItem, navOriginalUp, navCorrectionTarget, navCompensationChanged
+local syncNativeNavigation
 local bagVisibilityBefore = {}
 local bagAnchorsBefore = {}
 local barAnimation
@@ -338,6 +341,7 @@ setBagBarExpanded = function(expanded)
 end
 
 local function applyOriginalLayout(frame)
+    navAlignedGrid = false
     if not useOriginalLayout() or not safeLayoutObject(frame) or
         not safeLayoutObject(frame.MoneyFrame) or type(frame.Items) ~= "table" or
         not AnchorUtil or not AnchorUtil.GridLayout or not AnchorUtil.CreateAnchor or
@@ -372,16 +376,20 @@ local function applyOriginalLayout(frame)
         type(width) ~= "number" or width < 53 + extraCount * 42 + 38 or
         not GamepadBagBar:GetBagButton(0) then return false end
     table.sort(items, nativeOrder)
-    -- Each item column needs one header control. Otherwise Blizzard's grid
-    -- preserves a row number across columns with unequal header counts.
-    local regularGrid = db.navLayout == true and #bagButtons == 6 and
-        #items >= 7 and safeLayoutObject(frame.AddSlotsButton) and
+    -- Match item columns to the visible header controls. Securing the account
+    -- hides AddSlotsButton, leaving six bag buttons instead of seven headers.
+    -- Falling back to Blizzard's ten columns then makes D-pad moves zigzag.
+    local addSlotsVisible = safeLayoutObject(frame.AddSlotsButton) and
         shown(frame.AddSlotsButton)
+    local headerColumns = #bagButtons + (addSlotsVisible and 1 or 0)
+    local regularGrid = db.navLayout == true and #bagButtons == 6 and
+        #items >= headerColumns
     -- Blizzard's four locked backpack slots are still item buttons in the
     -- native focus group. They can head four extra columns while locked.
     -- If they become usable, leave them in the ordinary item grid instead.
     local lockedHeaders = {}
-    if regularGrid and db.landscapeLayout == true and IsAccountSecured and
+    if regularGrid and addSlotsVisible and db.landscapeLayout == true and
+        IsAccountSecured and
         not IsAccountSecured() then
         for _, item in ipairs(items) do
             if item:GetBagID() == 0 and item.IsExtended and item:IsExtended() then
@@ -402,21 +410,22 @@ local function applyOriginalLayout(frame)
         end
     end
     local landscapeGrid = #lockedHeaders == 4
-    local itemColumns = regularGrid and (landscapeGrid and 11 or 7) or columns
+    local itemColumns = regularGrid and
+        (landscapeGrid and headerColumns + 4 or headerColumns) or columns
     local itemRows = math.ceil(#items / itemColumns)
     local nativeRows = type(frame.GetRows) == "function" and frame:GetRows() or
         math.ceil((#items + #bagButtons) / columns)
     local rowDifference = itemRows - nativeRows
     if regularGrid then
-        -- One native header per item column: six bags, add-slots, and
-        -- optionally the four still-locked backpack slots.
+        -- One native header per item column: six bags, visible add-slots,
+        -- and optionally the four still-locked backpack slots.
         -- Anchor every item from the same footer point.
         local itemWidth, itemHeight = items[1]:GetWidth(), items[1]:GetHeight()
         if type(itemWidth) ~= "number" or type(itemHeight) ~= "number" or
             itemWidth <= 0 or itemHeight <= 0 then return false end
         local stepX, stepY = itemWidth + ITEM_SPACING, itemHeight + ITEM_SPACING
-        -- Native width reserves ten item columns. Keep the seven-column
-        -- background without moving or clipping the right-anchored contents.
+        -- Native width reserves ten item columns. Fit the active header count
+        -- without moving or clipping the right-anchored contents.
         local compactWidth = (nativeLayoutWidth or width) -
             (columns - itemColumns) * stepX
         if compactWidth < itemColumns * itemWidth +
@@ -475,17 +484,22 @@ local function applyOriginalLayout(frame)
         end
     end
     if regularGrid then
-        if not addSlotsSizeBefore then
-            addSlotsSizeBefore = { frame.AddSlotsButton:GetWidth(),
-                frame.AddSlotsButton:GetHeight() }
+        if addSlotsVisible then
+            if not addSlotsSizeBefore then
+                addSlotsSizeBefore = { frame.AddSlotsButton:GetWidth(),
+                    frame.AddSlotsButton:GetHeight() }
+            end
+            frame.AddSlotsButton:ClearAllPoints()
+            frame.AddSlotsButton:SetSize(items[headerColumns]:GetWidth(),
+                items[headerColumns]:GetHeight())
+            frame.AddSlotsButton:SetPoint("BOTTOMLEFT", items[headerColumns],
+                "TOPLEFT", 0, ITEM_SPACING)
         end
-        frame.AddSlotsButton:ClearAllPoints()
-        frame.AddSlotsButton:SetSize(items[7]:GetWidth(), items[7]:GetHeight())
-        frame.AddSlotsButton:SetPoint("BOTTOMLEFT", items[7], "TOPLEFT", 0, ITEM_SPACING)
         if landscapeGrid then
             for index, locked in ipairs(lockedHeaders) do
                 locked:ClearAllPoints()
-                locked:SetPoint("BOTTOMLEFT", items[index + 7], "TOPLEFT", 0,
+                locked:SetPoint("BOTTOMLEFT", items[index + headerColumns],
+                    "TOPLEFT", 0,
                     ITEM_SPACING)
             end
         end
@@ -504,6 +518,7 @@ local function applyOriginalLayout(frame)
             layoutExtraHeight = 36 + rowDifference *
                 (items[1]:GetHeight() + ITEM_SPACING)
         end
+        navAlignedGrid = true
         return true
     end
     -- The item grid is anchored to the money frame, while the bag controls
@@ -544,6 +559,86 @@ local function applyOriginalLayout(frame)
         layoutExtraHeight = extra
     end
     return true
+end
+
+-- The combined bag enables bottom-height compensation for its native grid.
+-- Our regular grid has top-aligned headers, so unequal final-column lengths
+-- would move left/right to a different visible row. Use Blizzard's guarded
+-- setter only while its addon restriction is inactive. The same restriction
+-- applies to the native jump-override setter below.
+local function navWriteAllowed()
+    if InCombatLockdown and InCombatLockdown() then return false end
+    local restrictions = _G.C_RestrictedActions
+    local kind = _G.Enum and Enum.AddOnRestrictionType and
+        Enum.AddOnRestrictionType.Combat
+    if not restrictions or type(restrictions.IsAddOnRestrictionActive) ~=
+        "function" or kind == nil then return false end
+    local ok, active = pcall(restrictions.IsAddOnRestrictionActive, kind)
+    return ok and active == false
+end
+
+syncNativeNavigation = function(frame)
+    if not navWriteAllowed() or not safeLayoutObject(frame) or
+        not SmartNavigation or
+        type(SmartNavigation.SetGridHeightCompensation) ~= "function" or
+        not SMART_NAV_INPUT_DIRECTION or not SMART_NAV_INPUT_DIRECTION.UP or
+        type(SmartNavigation_AddJumpNavigationOverride) ~= "function" or
+        type(SmartNavigation_ClearJumpNavigationOverridesInDirection) ~=
+            "function" then return end
+    local align = shown(frame) and useOriginalLayout() and navAlignedGrid and
+        db.navLayout == true
+    local backpack = GamepadBagBar and GamepadBagBar.GetBagButton and
+        GamepadBagBar:GetBagButton(0)
+    local leftmost
+    if align and type(frame.Items) == "table" and frame.Items[1] then
+        -- Mirror the client's own leftmost-item choice, including its
+        -- topmost tie-break. This is the button receiving native UP override.
+        local leftX, topY
+        for _, item in ipairs(frame.Items) do
+            if safeLayoutObject(item) then
+                local x, y = item:GetCenter()
+                if type(x) == "number" and type(y) == "number" and
+                    (leftX == nil or x < leftX or
+                        (x == leftX and y > topY)) then
+                    leftmost, leftX, topY = item, x, y
+                end
+            end
+        end
+    end
+    local previous = navCorrectedItem
+    if previous and (previous ~= leftmost or not backpack) then
+        -- Only restore a value we still own; Blizzard may already have
+        -- replaced it during a later OnShow.
+        if safeLayoutObject(previous) and
+            previous["smartNavigationOverride-up"] == navCorrectionTarget then
+            if navOriginalUp == nil then
+                SmartNavigation_ClearJumpNavigationOverridesInDirection(
+                    previous, SMART_NAV_INPUT_DIRECTION.UP)
+            else
+                SmartNavigation_AddJumpNavigationOverride(
+                    previous, SMART_NAV_INPUT_DIRECTION.UP, navOriginalUp)
+            end
+        end
+        navCorrectedItem, navOriginalUp, navCorrectionTarget = nil, nil, nil
+    end
+    if align then
+        SmartNavigation:SetGridHeightCompensation(frame, false)
+        navCompensationChanged = true
+        if backpack and leftmost and frame.PortraitButton then
+            local current = leftmost["smartNavigationOverride-up"]
+            if current == frame.PortraitButton or
+                (leftmost == navCorrectedItem and current == backpack) then
+                if previous ~= leftmost then navOriginalUp = current end
+                navCorrectedItem = leftmost
+                navCorrectionTarget = backpack
+                SmartNavigation_AddJumpNavigationOverride(leftmost,
+                    SMART_NAV_INPUT_DIRECTION.UP, backpack)
+            end
+        end
+    elseif navCompensationChanged then
+        SmartNavigation:SetGridHeightCompensation(frame, true)
+        navCompensationChanged = false
+    end
 end
 
 local function updateBagSlotShading(frame, enabled)
@@ -641,6 +736,7 @@ local function installLayoutHooks()
                 not bagShadingVisible then return end
             updateBagSlotShading(self, gamepadVisualsEnabled())
             if not useOriginalLayout() then
+                navAlignedGrid = false
                 if not (InCombatLockdown and InCombatLockdown()) then
                     pcall(restoreBagBar)
                 end
@@ -662,6 +758,13 @@ local function installLayoutHooks()
         end)
     end)
     if ok then layoutFrame = frame end
+    if ok and type(frame.ApplySmartNavOverrideForLeftmostButton) ==
+        "function" then
+        -- Native OnShow refreshes the secure grid next frame, then installs
+        -- its portrait jump. Run only after that native method finishes.
+        pcall(hooksecurefunc, frame, "ApplySmartNavOverrideForLeftmostButton",
+            function(self) syncNativeNavigation(self) end)
+    end
     if ok and type(frame.UpdateName) == "function" and
         type(frame.SetTitle) == "function" then
         pcall(hooksecurefunc, frame, "UpdateName", function(self)
@@ -1849,6 +1952,7 @@ addon:SetScript("OnEvent", function(_, event, name, blockedFunction)
             installLayoutHooks()
             installSortHook()
         end
+        if layoutFrame then syncNativeNavigation(layoutFrame) end
     elseif event == "MERCHANT_SHOW" then
         merchantSession = merchantSession + 1
         merchantOpen = gamepadModeActive()
@@ -1896,6 +2000,7 @@ addon:SetScript("OnUpdate", function(_, elapsed)
             installSortHook()
         end
         refreshBagTitle()
+        if layoutFrame then syncNativeNavigation(layoutFrame) end
     end
     if not mode then return end
     if layoutFrame and not shown(layoutFrame) and db and
@@ -2140,6 +2245,7 @@ SlashCmdList.FRIDAYNIGHTBAGS = function(input)
                 installLayoutHooks()
                 refreshOriginalLayout()
             end
+            if layoutFrame then syncNativeNavigation(layoutFrame) end
             refreshBagColors()
             refreshBagTitle()
             say("Original-style gamepad layout " .. (db.originalGamepadLayout and "ON" or "OFF") ..
@@ -2228,12 +2334,13 @@ SlashCmdList.FRIDAYNIGHTBAGS = function(input)
                 installLayoutHooks()
                 refreshOriginalLayout()
             end
+            if layoutFrame then syncNativeNavigation(layoutFrame) end
         elseif rest ~= "" and rest ~= "status" then
             say("Use /fnb navlayout on, /fnb navlayout off, or /fnb navlayout status.")
             return
         end
-        say("Geometry-only navigation layout " .. (db.navLayout and "ON" or "OFF") ..
-            ". Blizzard navigation settings are untouched.")
+        say("Aligned navigation layout " .. (db.navLayout and "ON" or "OFF") ..
+            "; native grid compensation is adjusted only out of combat.")
     elseif command == "landscape" then
         if rest == "on" or rest == "off" then
             db.landscapeLayout = rest == "on"
@@ -2241,14 +2348,13 @@ SlashCmdList.FRIDAYNIGHTBAGS = function(input)
                 installLayoutHooks()
                 refreshOriginalLayout()
             end
+            if layoutFrame then syncNativeNavigation(layoutFrame) end
         elseif rest ~= "" and rest ~= "status" then
             say("Use /fnb landscape on, /fnb landscape off, or /fnb landscape status.")
             return
         end
-        local eligible = IsAccountSecured and not IsAccountSecured()
         say("Landscape experiment " .. (db.landscapeLayout and "ON" or "OFF") ..
-            (eligible and "; uses eleven columns when four locked slots are present."
-                or "; account secured, using seven columns."))
+            "; grid matches the visible bag and + headers; four locked slots can add four columns.")
     else
         say("Gray-junk auto-sale " .. (db.autoSellGray and "ON" or "OFF") ..
             ". Commands: on, off, keep <item link/ID>, unkeep <item link/ID>, list, sort, sortdiag, sortexport, colors, layout on/off, navlayout on/off, landscape on/off, bags, diag, export, nav, navexport.")
