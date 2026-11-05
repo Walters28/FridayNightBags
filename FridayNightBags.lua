@@ -1,5 +1,5 @@
 local ADDON_NAME = ...
-local VERSION = "0.1.43"
+local VERSION = "0.1.44"
 local addon = CreateFrame("Frame")
 local db
 local merchantSession = 0
@@ -384,32 +384,39 @@ local function applyOriginalLayout(frame)
     local headerColumns = #bagButtons + (addSlotsVisible and 1 or 0)
     local regularGrid = db.navLayout == true and #bagButtons == 6 and
         #items >= headerColumns
-    -- Blizzard's four locked backpack slots are still item buttons in the
-    -- native focus group. They can head four extra columns while locked.
-    -- If they become usable, leave them in the ordinary item grid instead.
-    local lockedHeaders = {}
-    if regularGrid and addSlotsVisible and db.landscapeLayout == true and
-        IsAccountSecured and
-        not IsAccountSecured() then
+    -- The four account-security backpack slots remain native item buttons
+    -- after unlock. Keep them usable as the four wide-view header cells:
+    -- ten columns without +, eleven while + and locked headers are visible.
+    local wideHeaders = {}
+    if regularGrid and db.landscapeLayout == true and IsAccountSecured then
+        local secured = IsAccountSecured()
         for _, item in ipairs(items) do
-            if item:GetBagID() == 0 and item.IsExtended and item:IsExtended() then
-                lockedHeaders[#lockedHeaders + 1] = item
+            if item:GetBagID() == 0 and item.IsExtended then
+                local slot = item:GetID()
+                local locked = addSlotsVisible and not secured and
+                    item:IsExtended()
+                local unlocked = not addSlotsVisible and secured and
+                    not item:IsExtended() and type(slot) == "number" and
+                    slot >= 17 and slot <= 20
+                if locked or unlocked then
+                    wideHeaders[#wideHeaders + 1] = item
+                end
             end
         end
-        if #lockedHeaders == 4 and #items >= 15 then
+        if #wideHeaders == 4 and #items >= headerColumns + 8 then
             local ordinary = {}
             for _, item in ipairs(items) do
-                if item ~= lockedHeaders[1] and item ~= lockedHeaders[2] and
-                    item ~= lockedHeaders[3] and item ~= lockedHeaders[4] then
+                if item ~= wideHeaders[1] and item ~= wideHeaders[2] and
+                    item ~= wideHeaders[3] and item ~= wideHeaders[4] then
                     ordinary[#ordinary + 1] = item
                 end
             end
             items = ordinary
         else
-            lockedHeaders = {}
+            wideHeaders = {}
         end
     end
-    local landscapeGrid = #lockedHeaders == 4
+    local landscapeGrid = #wideHeaders == 4
     local itemColumns = regularGrid and
         (landscapeGrid and headerColumns + 4 or headerColumns) or columns
     local itemRows = math.ceil(#items / itemColumns)
@@ -418,7 +425,7 @@ local function applyOriginalLayout(frame)
     local rowDifference = itemRows - nativeRows
     if regularGrid then
         -- One native header per item column: six bags, visible add-slots,
-        -- and optionally the four still-locked backpack slots.
+        -- and optionally the four account-security backpack slots.
         -- Anchor every item from the same footer point.
         local itemWidth, itemHeight = items[1]:GetWidth(), items[1]:GetHeight()
         if type(itemWidth) ~= "number" or type(itemHeight) ~= "number" or
@@ -496,9 +503,9 @@ local function applyOriginalLayout(frame)
                 "TOPLEFT", 0, ITEM_SPACING)
         end
         if landscapeGrid then
-            for index, locked in ipairs(lockedHeaders) do
-                locked:ClearAllPoints()
-                locked:SetPoint("BOTTOMLEFT", items[index + headerColumns],
+            for index, extra in ipairs(wideHeaders) do
+                extra:ClearAllPoints()
+                extra:SetPoint("BOTTOMLEFT", items[index + headerColumns],
                     "TOPLEFT", 0,
                     ITEM_SPACING)
             end
@@ -2354,7 +2361,7 @@ SlashCmdList.FRIDAYNIGHTBAGS = function(input)
             return
         end
         say("Landscape experiment " .. (db.landscapeLayout and "ON" or "OFF") ..
-            "; grid matches the visible bag and + headers; four locked slots can add four columns.")
+            "; four backpack extension slots add four columns when available.")
     else
         say("Gray-junk auto-sale " .. (db.autoSellGray and "ON" or "OFF") ..
             ". Commands: on, off, keep <item link/ID>, unkeep <item link/ID>, list, sort, sortdiag, sortexport, colors, layout on/off, navlayout on/off, landscape on/off, bags, diag, export, nav, navexport.")

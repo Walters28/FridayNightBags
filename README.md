@@ -1,14 +1,14 @@
 # Friday Night Gamepad Bags by Walters
 
-Version **0.1.43** for WoW Forever (interface 16001, developed on build 70790).
+Version **0.1.44** for WoW Forever (interface 16001, developed on build 70790).
 
 Friday Night Bags gives the gamepad combined backpack a compact grid with bag-origin colors. The gamepad layout displays “Friday Night Bags” as its title. It retains Blizzard's item buttons, pickup and drop actions, bag options, controller bindings, and O-to-close behavior. Keyboard and mouse mode keeps Blizzard's bag layout.
 
-The aligned navigation layout is enabled by default. It follows the visible bag controls: six columns when account security hides the extra-slot `+`, or seven when `+` is visible. On accounts with four locked extra backpack slots, `/fnb landscape on` places those slots beside `+` and spreads usable items across eleven columns. The equipped-bag row stays visible. D-pad movement follows the visible item rows.
+The aligned navigation layout is enabled by default. It follows the visible bag controls: six columns when account security hides the extra-slot `+`, or seven when `+` is visible. `/fnb landscape on` adds four backpack extension slots across the top row: ten columns after those slots are unlocked, or eleven while `+` and the locked slots are visible. Unlocked slots remain usable. The equipped-bag row stays visible, and D-pad movement follows the visible item rows.
 
 ## Install
 
-Extract the ZIP into `World of Warcraft/_forever_/Interface/AddOns` so the files reside in `AddOns/FridayNightBags`. In game, use `/reload`. The wider layout is a per-character choice when the four locked slot headers are available: use `/fnb landscape on`, close and reopen the bags to rebuild the navigation grid, then `/reload` to save the choice. `/fnb landscape off` uses the regular grid matching the visible bag controls.
+Extract the ZIP into `World of Warcraft/_forever_/Interface/AddOns` so the files reside in `AddOns/FridayNightBags`. In game, use `/reload`. The wider layout is a per-character choice: use `/fnb landscape on`, close and reopen the bags to rebuild the navigation grid, then `/reload` to save the choice. `/fnb landscape off` uses the regular grid matching the visible bag controls.
 
 ## Bag colors
 
@@ -21,7 +21,7 @@ The RGB editor stays in the Settings page. It does not open Blizzard's separate 
 - `/fnb on` or `/fnb off`: enable or disable gamepad-only gray-junk selling. It is enabled by default and requests sales only for quality-zero items with a positive vendor price. Locked items, changed slots, and keep-listed item IDs are skipped.
 - `/fnb keep <item link or ID>`, `/fnb unkeep <item link or ID>`, `/fnb list`: manage protected item IDs.
 - `/fnb sort`: request Blizzard's native bag sort.
-- `/fnb landscape on|off|status`: choose the eleven-column view when its locked-slot headers are available.
+- `/fnb landscape on|off|status`: choose ten columns with unlocked extension slots or eleven while the slots are locked and `+` is visible.
 - `/fnb navlayout on|off`: use the aligned navigation layout or the earlier collapsible bag-strip layout. The latter can bring back the beta's D-pad navigation problems; return to `on` if it does.
 - `/fnb layout on|off`: enable the addon gamepad layout or restore Blizzard's native layout. The native title returns when this is off or gamepad mode ends.
 

@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.1.44 - WoW Forever
+
+- Restored the wide landscape layout after securing an account. With the extra-slot `+` hidden, the four unlocked backpack extension slots remain usable across the top row and the bag uses ten columns.
+- Kept the eleven-column landscape layout when `+` and the four locked slot headers are visible. With landscape off, the grid continues to match the visible bag controls.
+- Kept the D-pad row navigation, bag and bank close handling, and color settings from 0.1.43.
+
 ## 0.1.43 - WoW Forever
 
 - Adjusted the combined-bag grid to match the bag controls that are actually visible. When account security hides the extra-slot `+`, the grid uses six columns; it uses seven while `+` is visible, or eleven with four locked slot headers in landscape mode.
