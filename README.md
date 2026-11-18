@@ -1,6 +1,6 @@
 # Friday Night Gamepad Bags by Walters
 
-Version **0.1.44** for WoW Forever (interface 16001, developed on build 70790).
+Version **0.1.46** for WoW Forever (interface 16001, tested on build 70959).
 
 Friday Night Bags gives the gamepad combined backpack a compact grid with bag-origin colors. The gamepad layout displays “Friday Night Bags” as its title. It retains Blizzard's item buttons, pickup and drop actions, bag options, controller bindings, and O-to-close behavior. Keyboard and mouse mode keeps Blizzard's bag layout.
 

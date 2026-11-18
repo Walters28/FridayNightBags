@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.1.46 - WoW Forever
+
+- Fixed the controller cursor jumping up a row when moving between columns four and five in the bag grid.
+- Updated navigation compatibility for the latest game UI. Left and right movement now stays on the same row when the last row is only partly filled.
+- Bag layout, colors, settings, and native item controls are unchanged.
+
 ## 0.1.44 - WoW Forever
 
 - Restored the wide landscape layout after securing an account. With the extra-slot `+` hidden, the four unlocked backpack extension slots remain usable across the top row and the bag uses ten columns.

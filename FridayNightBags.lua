@@ -1,5 +1,5 @@
 local ADDON_NAME = ...
-local VERSION = "0.1.44"
+local VERSION = "0.1.46"
 local addon = CreateFrame("Frame")
 local db
 local merchantSession = 0
@@ -771,6 +771,19 @@ local function installLayoutHooks()
         -- its portrait jump. Run only after that native method finishes.
         pcall(hooksecurefunc, frame, "ApplySmartNavOverrideForLeftmostButton",
             function(self) syncNativeNavigation(self) end)
+    end
+    if ok and SmartNavigation and
+        type(SmartNavigation.RefreshButtonGroups) == "function" then
+        -- New clients initialize height compensation through a panel-info
+        -- callback instead of ApplySmartNavOverrideForLeftmostButton.
+        -- Reapply after native grid refresh, without replacing that callback
+        -- or altering native panel state directly. Ignore other panels/close.
+        pcall(hooksecurefunc, SmartNavigation, "RefreshButtonGroups",
+            function(_, refreshedFrame)
+                if refreshedFrame == frame and shown(frame) then
+                    syncNativeNavigation(frame)
+                end
+            end)
     end
     if ok and type(frame.UpdateName) == "function" and
         type(frame.SetTitle) == "function" then
@@ -1832,6 +1845,7 @@ local function navReport()
         "combinedShown=" .. navFlag(navCall(combined, "IsShown")),
         "useGrid=" .. navFlag(navGet(info, "useGrid")),
         "wrapping=" .. navFlag(navGet(info, "isWrapping")),
+        "heightCompensate=" .. navFlag(navGet(info, "gridHeightCompensate")),
         "focusedKey=" .. navText(navGet(info, "focusedKey")),
         "selected=" .. navName(selected))
     if not info then
