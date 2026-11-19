@@ -1,5 +1,5 @@
 local ADDON_NAME = ...
-local VERSION = "0.1.46"
+local VERSION = "0.1.47"
 local addon = CreateFrame("Frame")
 local db
 local merchantSession = 0
@@ -382,8 +382,35 @@ local function applyOriginalLayout(frame)
     local addSlotsVisible = safeLayoutObject(frame.AddSlotsButton) and
         shown(frame.AddSlotsButton)
     local headerColumns = #bagButtons + (addSlotsVisible and 1 or 0)
-    local regularGrid = db.navLayout == true and #bagButtons == 6 and
-        #items >= headerColumns
+    -- Forever adds a native keyring header. Accept only the known six-bag
+    -- set plus that exact control, not an arbitrary seventh header. Keep the
+    -- backpack first: native UP navigation targets it from the leftmost item.
+    local keyringGrid = false
+    if #bagButtons == 7 then
+        local expected, seen = {}, {}
+        local keyring = GamepadBagBar:GetBagButton(-1)
+        for bag = 0, 5 do
+            local button = GamepadBagBar:GetBagButton(bag)
+            if button then expected[button] = true end
+        end
+        if keyring and not expected[keyring] then
+            expected[keyring] = true
+            keyringGrid = true
+            for _, button in ipairs(bagButtons) do
+                if not expected[button] or seen[button] then keyringGrid = false end
+                seen[button] = true
+            end
+        end
+        if keyringGrid then
+            bagButtons = { GamepadBagBar:GetBagButton(0) }
+            for bag = 1, 5 do
+                bagButtons[#bagButtons + 1] = GamepadBagBar:GetBagButton(bag)
+            end
+            bagButtons[#bagButtons + 1] = keyring
+        end
+    end
+    local regularGrid = db.navLayout == true and
+        (#bagButtons == 6 or keyringGrid) and #items >= headerColumns
     -- The four account-security backpack slots remain native item buttons
     -- after unlock. Keep them usable as the four wide-view header cells:
     -- ten columns without +, eleven while + and locked headers are visible.
@@ -424,7 +451,7 @@ local function applyOriginalLayout(frame)
         math.ceil((#items + #bagButtons) / columns)
     local rowDifference = itemRows - nativeRows
     if regularGrid then
-        -- One native header per item column: six bags, visible add-slots,
+        -- One native header per item column: bags/keyring, visible add-slots,
         -- and optionally the four account-security backpack slots.
         -- Anchor every item from the same footer point.
         local itemWidth, itemHeight = items[1]:GetWidth(), items[1]:GetHeight()
@@ -455,10 +482,12 @@ local function applyOriginalLayout(frame)
     end
     -- Place one native control directly above each item column.
     stopBarAnimation()
-    if not barCustomized then
+    -- A native keyring can appear after customization has already started.
+    -- Capture each new control before moving it; never overwrite its backup.
+    do
         for bag = firstBag, lastBag do
             local button = GamepadBagBar:GetBagButton(bag)
-            if button then
+            if button and bagVisibilityBefore[bag] == nil then
                 bagVisibilityBefore[bag] = shown(button)
                 if button.GetNumPoints and button.GetPoint then
                     local points = {}

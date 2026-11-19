@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.1.47 - WoW Forever
+
+- Fixed controller bag navigation breaking when the keyring becomes available.
+- Kept the regular bag controls together, with the keyring after the last bag.
+- Preserved native Expand/Collapse and bag controls, including restoration when the keyring appears after the bags are already open.
+
 ## 0.1.46 - WoW Forever
 
 - Fixed the controller cursor jumping up a row when moving between columns four and five in the bag grid.
